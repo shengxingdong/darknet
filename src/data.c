@@ -932,6 +932,8 @@ data load_data_detection(int n, char **paths, int m, int w, int h, int c, int bo
             //src = temp;
             //cvResize(ro_src, src, CV_INTER_LINEAR);
             //cvReleaseImage(&ro_src);
+        }else{
+            cvReleaseImage(&ro_src);
         }
 #if 0//debug
         char labelpath[4096];
