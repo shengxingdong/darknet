@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define TEST_PASTE_TO_OTHER_IMAGE
+
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 list *get_paths(char *filename)
@@ -385,6 +387,105 @@ void fill_truth_detection(char *path, int num_boxes, float *truth, int classes, 
     free(boxes);
 }
 
+#ifdef TEST_PASTE_TO_OTHER_IMAGE
+
+void fill_truth_detection_in_other_image(char *path, int num_boxes, float *truth, int classes, int flip, float dx, float dy, float sx, float sy, 
+	int small_object, int net_w, int net_h, float ox, float oy, float rx, float ry)
+{
+    char labelpath[4096];
+    replace_image_to_label(path, labelpath);
+
+    int count = 0;
+    int i;
+    box_label *boxes = read_boxes(labelpath, &count);
+
+    //add offset and scale
+    for (i = 0; i < count; ++i) {
+        boxes[i].x = boxes[i].x * rx + ox;
+        boxes[i].y = boxes[i].y * ry + oy;
+        boxes[i].w = boxes[i].w * rx;
+        boxes[i].h = boxes[i].h * ry;
+    }
+
+	float lowest_w = 1.F / net_w;
+	float lowest_h = 1.F / net_h;
+	if (small_object == 1) {
+		for (i = 0; i < count; ++i) {
+			if (boxes[i].w < lowest_w) boxes[i].w = lowest_w;
+			if (boxes[i].h < lowest_h) boxes[i].h = lowest_h;
+		}
+	}
+    randomize_boxes(boxes, count);
+    correct_boxes(boxes, count, dx, dy, sx, sy, flip);
+    if (count > num_boxes) count = num_boxes;
+    float x, y, w, h;
+    int id;
+    int sub = 0;
+
+    for (i = 0; i < count; ++i) {
+        x = boxes[i].x;
+        y = boxes[i].y;
+        w = boxes[i].w;
+        h = boxes[i].h;
+        id = boxes[i].id;
+
+        // not detect small objects
+        //if ((w < 0.001F || h < 0.001F)) continue;
+        // if truth (box for object) is smaller than 1x1 pix
+        char buff[256];
+        if (id >= classes) {
+            printf("\n Wrong annotation: class_id = %d. But class_id should be [from 0 to %d] \n", id, classes);
+            sprintf(buff, "echo %s \"Wrong annotation: class_id = %d. But class_id should be [from 0 to %d]\" >> bad_label.list", labelpath, id, classes);
+            system(buff);
+            getchar();
+            ++sub;
+            continue;
+        }
+        if ((w < lowest_w || h < lowest_h)) {
+            //sprintf(buff, "echo %s \"Very small object: w < lowest_w OR h < lowest_h\" >> bad_label.list", labelpath);
+            //system(buff);
+            ++sub;
+            continue;
+        }
+        if (x == 999999 || y == 999999) {
+            printf("\n Wrong annotation: x = 0, y = 0 \n");
+            sprintf(buff, "echo %s \"Wrong annotation: x = 0 or y = 0\" >> bad_label.list", labelpath);
+            system(buff);
+            ++sub;
+            continue;
+        }
+        if (x <= 0 || x > 1 || y <= 0 || y > 1) {
+            printf("\n Wrong annotation: x = %f, y = %f \n", x, y);
+            sprintf(buff, "echo %s \"Wrong annotation: x = %f, y = %f\" >> bad_label.list", labelpath, x, y);
+            system(buff);
+            ++sub;
+            continue;
+        }
+        if (w > 1) {
+            printf("\n Wrong annotation: w = %f \n", w);
+            sprintf(buff, "echo %s \"Wrong annotation: w = %f\" >> bad_label.list", labelpath, w);
+            system(buff);
+            w = 1;
+        }
+        if (h > 1) {
+            printf("\n Wrong annotation: h = %f \n", h);
+            sprintf(buff, "echo %s \"Wrong annotation: h = %f\" >> bad_label.list", labelpath, h);
+            system(buff);
+            h = 1;
+        }
+        if (x == 0) x += lowest_w;
+        if (y == 0) y += lowest_h;
+
+        truth[(i-sub)*5+0] = x;
+        truth[(i-sub)*5+1] = y;
+        truth[(i-sub)*5+2] = w;
+        truth[(i-sub)*5+3] = h;
+        truth[(i-sub)*5+4] = id;
+    }
+    free(boxes);
+}
+#endif
+
 #define NUMCHARS 37
 
 void print_letters(float *pred, int n)
@@ -733,6 +834,37 @@ data load_data_swag(char **paths, int n, int classes, float jitter)
 
 #include "http_stream.h"
 
+#ifdef TEST_PASTE_TO_OTHER_IMAGE
+
+bool get_random_other_filename(char *random_other_filename)
+{
+    char **other_file_path[1000];
+    int other_file_path_num = 0;
+    if(other_file_path == NULL || other_file_path_num == 0){
+        char*other_file_list = "/home/sindo/data/CNN/large_images/filelist.txt";
+        char *path;
+        FILE *file = fopen(other_file_list, "r");
+        if(!file) file_error(other_file_list);
+        while((path=fgetl(file))){
+            other_file_path[other_file_path_num] = path;
+            other_file_path_num++;
+        }
+        fclose(file);
+    }
+    
+    int idx = rand() % other_file_path_num;
+    strcpy(random_other_filename, other_file_path[idx]);
+
+    for(int i=0; i<other_file_path_num;i++){
+        free(other_file_path[i]);
+    }
+
+    //printf("idx: %d, %s\n", idx, random_other_filename);
+    return true;
+    
+    //return "/home/sindo/data/CNN/large_images/1.jpg";
+}
+#endif
 data load_data_detection(int n, char **paths, int m, int w, int h, int c, int boxes, int classes, int use_flip, float jitter, float hue, float saturation, float exposure, int small_object)
 {
     c = c ? c : 3;
@@ -761,6 +893,79 @@ data load_data_detection(int n, char **paths, int m, int w, int h, int c, int bo
             //exit(0);
         }
 
+#ifdef TEST_PASTE_TO_OTHER_IMAGE
+        float ox = 0;
+        float oy = 0;
+        float rx = 1.0;
+        float ry = 1.0;
+        char random_other_filename[1000];
+        get_random_other_filename(random_other_filename);
+        IplImage *ro_src;
+		if ((ro_src = cvLoadImage(random_other_filename, flag)) == 0){
+            fprintf(stderr, "Cannot load image \"%s\"\n", random_other_filename);
+			char buff[256];
+			sprintf(buff, "echo %s >> bad.list", random_other_filename);
+			system(buff);
+			continue;
+        }
+
+        if(ro_src->width > src->width && ro_src->height > src->height){
+            ox = rand() % (ro_src->width - src->width - 1);
+            oy = rand() % (ro_src->height - src->height - 1);
+            //ox = 10 % (ro_src->width - src->width - 1);
+            //oy = 10 % (ro_src->height - src->height - 1);
+
+            cvSetImageROI(ro_src, cvRect(ox,oy, src->width, src->height));
+            cvCopy(src,ro_src, 0);
+            cvResetImageROI(ro_src);
+
+            rx = (float)(src->width) / ro_src->width;
+            ry = (float)(src->height) / ro_src->height;
+            ox = ox / ro_src->width;
+            oy = oy / ro_src->height;
+
+            cvReleaseImage(&src);
+            src = ro_src;
+
+            //IplImage *temp = cvCreateImage(cvSize(416, 416.0/ro_src->width * ro_src->height), src->depth, src->nChannels);
+            //cvReleaseImage(&src);
+            //src = temp;
+            //cvResize(ro_src, src, CV_INTER_LINEAR);
+            //cvReleaseImage(&ro_src);
+        }
+#if 0//debug
+        char labelpath[4096];
+	    replace_image_to_label(filename, labelpath);
+        printf("ox,oy: %f,%f,%f,%f\n", ox, oy, rx,ry);
+
+        int count = 0;
+	    int i;
+        box_label *boxes = read_boxes(labelpath, &count);
+
+        boxes[0].x = boxes[0].x *rx + ox;
+        boxes[0].y = boxes[0].y *ry + oy;
+        boxes[0].w *= rx;
+        boxes[0].h *= ry;
+
+
+        boxes[0].x -= boxes[0].w/2;
+        boxes[0].y -= boxes[0].h/2;
+
+        float scalex = src->width;
+        float scaley = src->height;
+        cvRectangle(src, cvPoint(boxes[0].x*scalex, boxes[0].y*scaley), 
+                          cvPoint((boxes[0].x + boxes[0].w)*scalex,  (boxes[0].y+boxes[0].h)*scaley), 
+                          CV_RGB(255, 0, 0), 2, 8, 0);
+
+        cvNamedWindow("TEST_PASTE_TO_OTHER_IMAGE", CV_WINDOW_NORMAL);
+	    cvShowImage("TEST_PASTE_TO_OTHER_IMAGE", src);
+        cvWaitKey(0);
+
+
+#endif
+
+        //exit(0);
+#endif
         int oh = src->height;
         int ow = src->width;
 
@@ -787,15 +992,17 @@ data load_data_detection(int n, char **paths, int m, int w, int h, int c, int bo
         float dsat = rand_scale(saturation);
         float dexp = rand_scale(exposure);
 
-        image ai = image_data_augmentation(src, w, h, pleft, ptop, swidth, sheight, flip, jitter, dhue, dsat, dexp);
-        d.X.vals[i] = ai.data;
-
-        //show_image(ai, "aug");
-        //cvWaitKey(0);
-
+		image ai = image_data_augmentation(src, w, h, pleft, ptop, swidth, sheight, flip, jitter, dhue, dsat, dexp);
+		d.X.vals[i] = ai.data;
+		
+		//show_image(ai, "aug");
+		//cvWaitKey(0);
+#ifdef TEST_PASTE_TO_OTHER_IMAGE
+        fill_truth_detection_in_other_image(filename, boxes, d.y.vals[i], classes, flip, dx, dy, 1./sx, 1./sy, small_object, w, h, ox, oy, rx, ry);
+#else
         fill_truth_detection(filename, boxes, d.y.vals[i], classes, flip, dx, dy, 1./sx, 1./sy, small_object, w, h);
-
-        cvReleaseImage(&src);
+#endif
+		cvReleaseImage(&src);
     }
     free(random_paths);
     return d;
