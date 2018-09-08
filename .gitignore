@@ -28,3 +28,7 @@ Thumbs.db
 # CMake #
 cmake-build-debug/
 CMakeLists.txt
+/darknet
+/darknet_cpu
+/darknet_cpu_openblas
+/darknet_gpu
