@@ -1,11 +1,11 @@
-GPU=0
-CUDNN=0
+GPU=1
+CUDNN=1
 CUDNN_HALF=0
-OPENCV=0
+OPENCV=1
 AVX=0
 OPENMP=0
 LIBSO=0
-
+USEBLAS=0
 # set GPU=1 and CUDNN=1 to speedup on GPU
 # set CUDNN_HALF=1 to further speedup 3 x times (Mixed-precision using Tensor Cores) on GPU Tesla V100, Titan V, DGX-2
 # set AVX=1 and OPENMP=1 to speedup on CPU (if error occurs then set AVX=0)
@@ -52,6 +52,13 @@ OPTS=-Ofast
 LDFLAGS= -lm -pthread 
 COMMON= 
 CFLAGS=-Wall -Wfatal-errors -Wno-unused-result -Wno-unknown-pragmas
+
+
+ifeq ($(USEBLAS), 1) 
+COMMON+= -DUSEBLAS
+CFLAGS+= -DUSEBLAS
+LDFLAGS+= -lopenblas
+endif
 
 ifeq ($(DEBUG), 1) 
 OPTS= -O0 -g
