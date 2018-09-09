@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define TEST_PASTE_TO_OTHER_IMAGE
+//#define TEST_PASTE_TO_OTHER_IMAGE
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
